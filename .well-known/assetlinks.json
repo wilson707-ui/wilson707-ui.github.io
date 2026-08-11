@@ -5,7 +5,8 @@
       "namespace": "android_app",
       "package_name": "com.william.zadquran",
       "sha256_cert_fingerprints": [
-        "FF:60:73:6A:9A:9C:12:40:7B:3E:4A:64:DA:EC:FC:8E:BF:DB:15:76:12:2D:2D:A5:35:52:28:97:32:47:DF:CC"
+        "FF:60:73:6A:9A:9C:12:40:7B:3E:4A:64:DA:EC:FC:8E:BF:DB:15:76:12:2D:2D:A5:35:52:28:97:32:47:DF:CC",
+        "D2:B5:90:D6:51:9F:C4:28:0F:BE:F7:0E:30:3E:1F:AB:48:DA:AE:93:59:DC:C8:19:53:AC:F6:39:A0:E6:96:D9"
       ]
     }
   }
