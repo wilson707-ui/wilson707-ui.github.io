@@ -328,6 +328,7 @@ const FONT_CDN='https://cdn.jsdelivr.net/gh/MohamadHajjRabee/quran-qcf4@main/fon
 const TAFSIR_BASE='https://api.alquran.cloud/v1';
 const TAFSIR_EDITION='ar.muyassar';
 const TOTAL_PAGES=604;
+const PAGES_CACHE='quran-pages-v1';
 
 /* ===== عدد آيات كل سورة — يُستخدم لحساب الرقم العام للآية (تعديل الإصلاح) ===== */
 const SURAH_AYAT_COUNTS=[7,286,200,176,120,165,206,75,129,109,123,111,43,52,99,128,111,110,98,135,112,78,118,64,77,227,93,88,69,60,34,30,73,54,45,83,182,88,75,85,54,53,89,59,37,35,38,29,18,45,60,49,62,55,78,96,29,22,24,13,14,11,11,18,12,12,30,52,52,44,28,28,20,56,40,31,50,40,46,42,29,19,36,25,22,17,19,26,30,20,15,21,11,8,8,19,5,8,8,11,11,8,3,9,5,4,7,3,6,3,5,4,5,6];
@@ -522,52 +523,77 @@ function pad3(n){return String(n).padStart(3,'0');}
 function downloadOrnamentSVG(){return`<svg viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="28" cy="28" r="26" stroke="#c9a356" stroke-width="1" opacity="0.5"/><circle cx="28" cy="28" r="19" stroke="#c9a356" stroke-width="1" opacity="0.7"/><path d="M28 6 L31 22 L47 25 L31 28 L28 44 L25 28 L9 25 L25 22 Z" fill="#c9a356" opacity="0.85"/></svg>`;}
 const ALL_FONT_NAMES=(()=>{const n=['QCF4_QBSML'];for(let i=1;i<=46;i++)n.push(`QCF4_Hafs_${String(i).padStart(2,'0')}`);return n;})();
 
-function renderDownloadScreen(){
-  app.innerHTML=`<div class="download-screen" id="downloadScreen"><div class="download-ornament">${downloadOrnamentSVG()}</div><h2>تحميل المصحف الشريف</h2><p>يتم الآن تحميل كل صفحات المصحف لمرة واحدة فقط، بعدها يعمل التطبيق بالكامل بدون إنترنت.</p><div class="download-progress-bar"><div class="download-progress-fill" id="progFill"></div></div><div class="download-progress-text" id="progText">0 / ${TOTAL_PAGES} صفحة</div><div class="download-progress-detail" id="progDetail">جاري تحميل الخطوط...</div></div>`;
-}
-function showDownloadError(msg){
-  const sc=document.getElementById('downloadScreen');const ex=sc.querySelector('.download-error-box');if(ex)ex.remove();
-  const b=document.createElement('div');b.className='download-error-box';b.innerHTML=`${msg}<br><button class="retry-btn" id="retryBtn">إعادة المحاولة</button>`;sc.appendChild(b);
-  document.getElementById('retryBtn').addEventListener('click',startFullDownload);
-}
-async function startFullDownload(){
-  renderDownloadScreen();
-  const progFill=document.getElementById('progFill'),progText=document.getElementById('progText'),progDetail=document.getElementById('progDetail');
+function isPagesDownloaded(){ return localStorage.getItem('quran_pages_downloaded')==='true'; }
+
+async function startPagesDownload(){
+  const btn=document.getElementById('dlbtn-pages');
+  const prog=document.getElementById('dlprog-pages');
+  if(!btn||!prog)return;
+
+  btn.textContent='جاري التحميل...';
+  btn.classList.add('downloading');
+  btn.disabled=true;
+  prog.classList.add('show');
+
   try{
-    progDetail.textContent='جاري تحميل الخطوط...';
+    prog.textContent='جاري تحميل الخطوط...';
     for(const f of ALL_FONT_NAMES)await ensureFontLoaded(f);
-    progDetail.textContent='جاري تحميل صفحات المصحف...';
+
     const BATCH=10;let done=0;
     for(let s=1;s<=TOTAL_PAGES;s+=BATCH){
       const batch=[];for(let p=s;p<Math.min(s+BATCH,TOTAL_PAGES+1);p++)batch.push(fetchPageData(p));
       await Promise.all(batch);done+=batch.length;
-      progFill.style.width=Math.round(done/TOTAL_PAGES*100)+'%';
-      progText.textContent=`${done} / ${TOTAL_PAGES} صفحة`;
+      prog.textContent=`${done} / ${TOTAL_PAGES} صفحة`;
     }
-    progDetail.textContent='اكتمل التحميل، جاري فتح المصحف...';
-    await new Promise(r=>setTimeout(r,400));
-    localStorage.setItem('quran_fully_downloaded','true');
-    renderShell();goToPage(1);
-  }catch(err){progDetail.textContent='';showDownloadError('تعذّر إكمال التحميل. تحقق من اتصال الإنترنت ثم حاول مرة أخرى.');}
+
+    localStorage.setItem('quran_pages_downloaded','true');
+    btn.outerHTML=`<span class="dl-btn downloaded">✓ محمّل أوفلاين</span>`;
+    prog.textContent='اكتمل التحميل ✓';
+  }catch(err){
+    btn.textContent='⬇ إعادة المحاولة';
+    btn.classList.remove('downloading');
+    btn.disabled=false;
+    prog.textContent='تعذّر إكمال التحميل، تحقق من اتصال الإنترنت';
+  }
 }
 
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
-if(localStorage.getItem('quran_fully_downloaded')==='true'){renderHome();}
-else startFullDownload();
+renderHome();
 
 async function ensureFontLoaded(fontName){
   if(loadedFonts.has(fontName))return;
   const suffix=fontName==='QCF4_QBSML'?'':'_W';
+  const url=`${FONT_CDN}/${fontName}${suffix}.woff2`;
+  loadedFonts.add(fontName);
+  let srcUrl=url;
+  try{
+    const cache=await caches.open(PAGES_CACHE);
+    let res=await cache.match(url);
+    if(!res){
+      res=await fetch(url);
+      if(res.ok)await cache.put(url,res.clone());
+    }
+    if(res && res.ok){
+      const blob=await res.blob();
+      srcUrl=URL.createObjectURL(blob);
+    }
+  }catch(e){}
   const s=document.createElement('style');
-  s.textContent=`@font-face{font-family:'${fontName}';src:url('${FONT_CDN}/${fontName}${suffix}.woff2') format('woff2');font-display:swap;}`;
-  document.head.appendChild(s);loadedFonts.add(fontName);
+  s.textContent=`@font-face{font-family:'${fontName}';src:url('${srcUrl}') format('woff2');font-display:swap;}`;
+  document.head.appendChild(s);
   try{await document.fonts.load(`20px ${fontName}`);}catch(e){}
 }
 async function fetchPageData(pageNum){
   if(pageCache[pageNum])return pageCache[pageNum];
-  const r=await fetch(`${RAW_BASE}/pages/${pad3(pageNum)}.json`);
-  if(!r.ok)throw new Error('fail');
-  const d=await r.json();pageCache[pageNum]=d;return d;
+  const url=`${RAW_BASE}/pages/${pad3(pageNum)}.json`;
+  const cache=await caches.open(PAGES_CACHE);
+  let res=await cache.match(url);
+  if(!res){
+    res=await fetch(url);
+    if(!res.ok)throw new Error('fail');
+    await cache.put(url,res.clone());
+  }
+  const d=await res.json();pageCache[pageNum]=d;return d;
 }
 function codeToChar(code){return String.fromCharCode(code);}
 
@@ -727,6 +753,18 @@ function openSettings(){
       <div class="settings-section">
         <span class="settings-section-label">تحميل الصوت للأوفلاين (اختياري)</span>
         ${reciterRows}
+      </div>
+
+      <div class="settings-section">
+        <span class="settings-section-label">نصوص المصحف للأوفلاين</span>
+        <div class="tafsir-dl-row">
+          <span class="reciter-row-name">كل صفحات المصحف (٦٠٤ صفحة)</span>
+          ${isPagesDownloaded()
+            ? `<span class="dl-btn downloaded">✓ محمّل أوفلاين</span>`
+            : `<button class="dl-btn" onclick="startPagesDownload()" id="dlbtn-pages">⬇ تحميل</button>`
+          }
+        </div>
+        <div class="dl-progress" id="dlprog-pages"></div>
       </div>
 
       <div class="settings-section">
