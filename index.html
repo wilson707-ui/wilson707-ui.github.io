@@ -525,39 +525,54 @@ const ALL_FONT_NAMES=(()=>{const n=['QCF4_QBSML'];for(let i=1;i<=46;i++)n.push(`
 
 function isPagesDownloaded(){ return localStorage.getItem('quran_pages_downloaded')==='true'; }
 
-async function startPagesDownload(){
+function handleSWMessage(event){
+  const data=event.data||{};
   const btn=document.getElementById('dlbtn-pages');
   const prog=document.getElementById('dlprog-pages');
-  if(!btn||!prog)return;
 
-  btn.textContent='جاري التحميل...';
-  btn.classList.add('downloading');
-  btn.disabled=true;
-  prog.classList.add('show');
-
-  try{
-    prog.textContent='جاري تحميل الخطوط...';
-    for(const f of ALL_FONT_NAMES)await ensureFontLoaded(f);
-
-    const BATCH=10;let done=0;
-    for(let s=1;s<=TOTAL_PAGES;s+=BATCH){
-      const batch=[];for(let p=s;p<Math.min(s+BATCH,TOTAL_PAGES+1);p++)batch.push(fetchPageData(p));
-      await Promise.all(batch);done+=batch.length;
-      prog.textContent=`${done} / ${TOTAL_PAGES} صفحة`;
+  if(data.type==='PAGES_DOWNLOAD_PROGRESS'){
+    if(prog)prog.textContent=`${data.done} / ${data.total} صفحة`;
+    if(btn){btn.textContent='جاري التحميل...';btn.classList.add('downloading');btn.disabled=true;}
+  }else if(data.type==='PAGES_DOWNLOAD_DONE'){
+    if(data.complete){
+      localStorage.setItem('quran_pages_downloaded','true');
+      if(btn)btn.outerHTML=`<span class="dl-btn downloaded">✓ محمّل أوفلاين</span>`;
+      if(prog)prog.textContent='اكتمل التحميل ✓';
+    }else if(btn){
+      btn.textContent='⬇ إعادة المحاولة';btn.classList.remove('downloading');btn.disabled=false;
+      if(prog)prog.textContent='اكتمل جزئياً، اضغط لإكمال الباقي';
     }
-
-    localStorage.setItem('quran_pages_downloaded','true');
-    btn.outerHTML=`<span class="dl-btn downloaded">✓ محمّل أوفلاين</span>`;
-    prog.textContent='اكتمل التحميل ✓';
-  }catch(err){
-    btn.textContent='⬇ إعادة المحاولة';
-    btn.classList.remove('downloading');
-    btn.disabled=false;
-    prog.textContent='تعذّر إكمال التحميل، تحقق من اتصال الإنترنت';
+  }else if(data.type==='PAGES_DOWNLOAD_ERROR'){
+    if(btn){btn.textContent='⬇ إعادة المحاولة';btn.classList.remove('downloading');btn.disabled=false;}
+    if(prog)prog.textContent='تعذّر إكمال التحميل، تحقق من اتصال الإنترنت';
+  }else if(data.type==='PAGES_STATUS'){
+    if(data.complete){
+      localStorage.setItem('quran_pages_downloaded','true');
+      if(btn)btn.outerHTML=`<span class="dl-btn downloaded">✓ محمّل أوفلاين</span>`;
+      if(prog)prog.textContent='';
+    }else if(data.downloading){
+      if(btn){btn.textContent='جاري التحميل...';btn.classList.add('downloading');btn.disabled=true;}
+      if(prog)prog.textContent=`${data.pagesDone} / ${data.pagesTotal} صفحة`;
+    }else if(data.pagesDone>0 && btn){
+      btn.textContent='⬇ إكمال التحميل';
+      if(prog)prog.textContent=`تم تحميل ${data.pagesDone} / ${data.pagesTotal} صفحة`;
+    }
   }
 }
 
-if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+async function startPagesDownload(){
+  const prog=document.getElementById('dlprog-pages');
+  if(prog){prog.classList.add('show');prog.textContent='جاري بدء التحميل...';}
+  const reg=await navigator.serviceWorker.ready;
+  reg.active.postMessage({type:'START_PAGES_DOWNLOAD'});
+  // احتياطي: لو انقطع الاتصال أثناء التحميل، يحاول يستأنف تلقائياً لما يرجع النت
+  try{ if('sync' in reg) await reg.sync.register('download-pages'); }catch(e){}
+}
+
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+  navigator.serviceWorker.addEventListener('message', handleSWMessage);
+}
 renderHome();
 
 async function ensureFontLoaded(fontName){
@@ -807,6 +822,12 @@ function openSettings(){
     const sel = document.getElementById('reciterSel');
     if(sel) sel.value = currentReciterId;
   });
+
+  if(!isPagesDownloaded() && 'serviceWorker' in navigator){
+    navigator.serviceWorker.ready.then(reg=>{
+      if(reg.active)reg.active.postMessage({type:'CHECK_PAGES_STATUS'});
+    }).catch(()=>{});
+  }
 }
 
 function closeSettings(){
